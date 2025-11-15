@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 from typing import List, Dict, Optional
 import json
 from pathlib import Path
+from make_json_efficient import make_sparse
 
 load_dotenv()
 
@@ -179,12 +180,13 @@ def find_champion_games(puuid: str, champion_name: str, save_to_folder: bool = T
                             json.dump(match_data, f, indent=4)
                         print(f"  → Saved match log to {log_file}")
                         
-                        # Save timeline
+                        # Save timeline (sparse/efficient version)
                         if timeline_data:
                             timeline_file = champion_folder / f"{match_id}_timeline.json"
+                            sparse_timeline = make_sparse(timeline_data)
                             with open(timeline_file, 'w') as f:
-                                json.dump(timeline_data, f, indent=4)
-                            print(f"  → Saved timeline to {timeline_file}")
+                                json.dump(sparse_timeline, f, indent=2)
+                            print(f"  → Saved sparse timeline to {timeline_file}")
                     
                     champion_games.append(game_info)
                 else:
