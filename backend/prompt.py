@@ -236,6 +236,21 @@ GUIDELINES:
 Provide your late game analysis:"""
 
 
+SINGLE_PASS_ANALYSIS_PROMPT = """You are an expert League of Legends coach providing a complete VOD review.
+
+You will receive match log data and timeline data with formatted timestamps (minute:seconds:milliseconds) and isOnSide fields.
+
+Create a natural, conversational coaching review covering:
+- Game overview and result
+- Key moments from early, mid, and late game with timestamps
+- What went well and what could be improved
+- Actionable recommendations
+
+Write for SPOKEN delivery - natural, engaging, ~5-6 minutes when spoken. Use "you" and "your" to speak directly to the player. Reference specific timestamps and use isOnSide information when relevant.
+
+Provide your coaching review:"""
+
+
 FINAL_SYNTHESIS_PROMPT = """You are an expert League of Legends coach synthesizing a complete VOD review.
 
 You will receive:
@@ -296,62 +311,21 @@ START YOUR COACHING REVIEW NOW:"""
 # GLOBAL MULTI-GAME ANALYSIS
 # ============================================================================
 
-GLOBAL_ANALYSIS_PROMPT = """You are an expert League of Legends coach providing a PRECISE, ACTIONABLE SUMMARY across multiple games focused on player improvement.
+GLOBAL_ANALYSIS_PROMPT = """You are an expert League of Legends coach analyzing multiple games to identify patterns.
 
-You will receive individual coaching reviews for multiple games. Your goal is to identify what ACTUALLY MATTERS for improvement - patterns that impact outcomes, not just phase-by-phase breakdowns.
+You will receive coaching reviews for multiple games. Analyze them and provide:
 
-**BE PRECISE AND ACTIONABLE.** Focus on specific, fixable issues and transferable strengths. Avoid generic phase comparisons unless they reveal actionable insights.
+**What you're good at:** (4 bullet points)
+- Identify 4 specific strengths that appear consistently across games
+- Be specific and reference which games show these strengths
 
-Create a focused summary covering:
+**What can be improved:** (4 bullet points)
+- Identify 4 specific weaknesses or mistakes that recur across games
+- Explain the impact and reference which games show these issues
 
-## 1. PERFORMANCE OVERVIEW (30 seconds)
-- Games analyzed: champions, results, win rate
-- Overall trend: improving, declining, or inconsistent
-- One sentence on overall performance level
+Write for SPOKEN delivery - natural, conversational, ~1-2 minutes when spoken. Be direct and actionable.
 
-## 2. CORE STRENGTHS TO MAINTAIN (45 seconds)
-What does this player do CONSISTENTLY WELL across games?
-- Specific mechanical skills (e.g., "excellent skill shot accuracy", "clean combo execution")
-- Decision-making patterns that work (e.g., "strong objective timing", "good map awareness")
-- Champion-specific execution that stands out
-- **Focus on strengths that WIN GAMES, not just "good habits"**
-
-## 3. CRITICAL WEAKNESSES TO FIX (1.5 minutes)
-What REPEATED MISTAKES cost games? Be specific:
-- **Mechanical issues**: Specific skill execution problems (e.g., "consistently misses Q in teamfights", "poor positioning leads to deaths")
-- **Decision-making errors**: Macro mistakes that recur (e.g., "overextends without vision", "misses objective timings")
-- **Execution gaps**: Champion-specific mechanics being missed (e.g., "not using W sweet spot", "poor ultimate timing")
-- **Impact**: How did these mistakes affect game outcomes?
-- **Reference specific examples** from the games when possible
-
-## 4. TOP 3 PRIORITY IMPROVEMENTS (1.5 minutes)
-Rank the MOST IMPACTFUL issues to address:
-1. **#1 Priority**: [Specific issue] - Why it matters, how it cost games, how to fix
-2. **#2 Priority**: [Specific issue] - Why it matters, how it cost games, how to fix  
-3. **#3 Priority**: [Specific issue] - Why it matters, how it cost games, how to fix
-
-**Each priority must:**
-- Be SPECIFIC and ACTIONABLE (not vague like "improve early game")
-- Show clear impact on outcomes
-- Include a concrete way to practice/improve it
-- Reference which games it appeared in
-
-## 5. POSITIVE MOMENTS & ENCOURAGEMENT (30 seconds)
-- What's improving or showing promise?
-- Specific plays or decisions that stood out positively
-- One encouraging takeaway
-
-**GUIDELINES:**
-- Keep it PRECISE - every point should be actionable
-- Focus on PATTERNS that appear across games, not isolated incidents
-- Prioritize issues that DIRECTLY IMPACTED GAME OUTCOMES
-- Avoid generic phase comparisons unless they reveal specific fixable issues
-- Be direct and conversational - this is coaching, not a report
-- Write for SPOKEN delivery - natural, conversational
-- Reference specific games when making points
-- Total length: ~4-5 minutes of audio
-
-Now provide your focused multi-game analysis:"""
+Provide your multi-game analysis:"""
 
 
 # ============================================================================
@@ -532,6 +506,48 @@ def get_analysis_prompt(match_log: dict, timeline: dict, player_puuid: str) -> s
     )
 
 
+def get_single_pass_analysis_prompt(match_log: dict, timeline: dict, player_puuid: str, champion_name: str) -> str:
+    """
+    Generate prompt for single-pass analysis (log + timeline in one go).
+    
+    Args:
+        match_log: The match log JSON data
+        timeline: The timeline JSON data (should be processed with timeline_handler)
+        player_puuid: The PUUID of the player to analyze
+        champion_name: The champion name
+    
+    Returns:
+        Complete prompt string for single-pass analysis
+    """
+    # Round all numbers to 3 decimals to reduce token usage
+    print("  → Rounding numbers to 3 decimals to optimize token usage...")
+    match_log_rounded = round_numbers_in_data(match_log, decimals=3)
+    timeline_rounded = round_numbers_in_data(timeline, decimals=3)
+    
+    match_log_str = json.dumps(match_log_rounded, indent=2)
+    timeline_str = json.dumps(timeline_rounded, indent=2)
+    
+    prompt = f"""{SINGLE_PASS_ANALYSIS_PROMPT}
+
+TARGET PLAYER:
+- Champion: {champion_name}
+- PUUID: {player_puuid}
+
+MATCH LOG DATA:
+```json
+{match_log_str}
+```
+
+TIMELINE DATA (with formatted timestamps and isOnSide):
+```json
+{timeline_str}
+```
+
+Begin your comprehensive coaching review:"""
+    
+    return prompt
+
+
 def get_global_analysis_prompt(game_reviews: Dict[str, str], game_contexts: Dict[str, str]) -> str:
     """
     Generate prompt for global multi-game analysis.
@@ -543,22 +559,14 @@ def get_global_analysis_prompt(game_reviews: Dict[str, str], game_contexts: Dict
     Returns:
         Complete prompt string for global analysis
     """
-    # Build the game summaries
+    # Build the game summaries (simplified - just reviews, contexts are optional)
     game_summary = ""
     for idx, (match_id, review) in enumerate(game_reviews.items(), 1):
-        context = game_contexts.get(match_id, "No context available")
-        game_summary += f"""
-{'='*70}
-GAME {idx}: {match_id}
-{'='*70}
-
-MATCH CONTEXT:
-{context}
-
-COACHING REVIEW:
-{review}
-
-"""
+        context = game_contexts.get(match_id, "")
+        if context and context.strip():
+            game_summary += f"\nGAME {idx} ({match_id}):\n{context}\n\nREVIEW:\n{review}\n\n"
+        else:
+            game_summary += f"\nGAME {idx} ({match_id}):\n{review}\n\n"
     
     prompt = f"""{GLOBAL_ANALYSIS_PROMPT}
 
@@ -566,7 +574,7 @@ You have {len(game_reviews)} game(s) to analyze:
 
 {game_summary}
 
-Now provide your comprehensive multi-game analysis:"""
+Provide your multi-game analysis:"""
     
     return prompt
 

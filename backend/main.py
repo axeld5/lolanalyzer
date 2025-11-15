@@ -90,6 +90,12 @@ Examples:
         help="Number of games to analyze (default: 2, analyzed in parallel)"
     )
     
+    parser.add_argument(
+        "--phase-based",
+        action="store_true",
+        help="Use phase-based analysis (Early → Mid → Late → Synthesis) instead of single-pass (default: single-pass)"
+    )
+    
     args = parser.parse_args()
     
     print("="*70)
@@ -193,13 +199,15 @@ Examples:
     for match in matches_to_analyze:
         print(f"  - {match['base_filename']}")
     
-    # Step 4: Phase-based Analysis with Claude (PARALLEL for multiple games)
+    # Step 4: AI Analysis with Claude (PARALLEL for multiple games)
+    analysis_method = "Single-Pass" if not args.phase_based else "Phase-Based"
     print(f"\n{'='*70}")
-    print(f"STEP 3: Phase-Based AI Analysis ({len(matches_to_analyze)} game(s) in PARALLEL)")
+    print(f"STEP 3: {analysis_method} AI Analysis ({len(matches_to_analyze)} game(s) in PARALLEL)")
     print('='*70)
     
     import asyncio
     from make_analysis import analyze_match_async, synthesize_global_analysis
+    from timeline_handler import ensure_timeline_processed
     
     # Async function to analyze multiple matches in parallel
     async def analyze_all_matches():
@@ -211,17 +219,24 @@ Examples:
             with open(match_info['timeline_file'], 'r') as f:
                 timeline = json.load(f)
             
+            # Ensure timeline is processed (has formattedTimestamp and isOnSide)
+            timeline = ensure_timeline_processed(timeline, str(match_info['timeline_file']))
+            
             # Create async task for this match
             task = analyze_match_async(
                 match_log, timeline, puuid, 
-                match_id=match_info['match_id']
+                match_id=match_info['match_id'],
+                use_single_pass=not args.phase_based
             )
             tasks.append((match_info['base_filename'], match_info['match_id'], task))
         
         # Run all matches in parallel
         print(f"\n🚀 Launching {len(tasks)} game analyses in parallel...")
-        print("  Each game will analyze 3 phases (early/mid/late) in parallel")
-        print(f"  Total: {len(tasks)} × 3 = {len(tasks) * 3} parallel analyses!\n")
+        if args.phase_based:
+            print("  Each game will analyze 3 phases (early/mid/late) in parallel")
+            print(f"  Total: {len(tasks)} × 3 = {len(tasks) * 3} parallel analyses!\n")
+        else:
+            print("  Each game will be analyzed in a single comprehensive pass\n")
         
         results = await asyncio.gather(*[task for _, _, task in tasks])
         
@@ -242,6 +257,7 @@ Examples:
     
     # Step 4.5: Generate global analysis if multiple games
     global_analysis = None
+    print(f"\nDebug: all_results has {len(all_results)} game(s)")
     if len(all_results) >= 2:
         print(f"\n{'='*70}")
         print("STEP 4: Global Multi-Game Analysis")
@@ -249,6 +265,7 @@ Examples:
         try:
             # Convert results format for global analysis (it expects match_id -> result mapping)
             global_results = {match_id: result for _, (match_id, result) in all_results.items()}
+            print(f"Debug: global_results has {len(global_results)} game(s)")
             global_analysis = synthesize_global_analysis(global_results)
         except Exception as e:
             print(f"⚠️  Error during global analysis: {e}")
@@ -265,19 +282,22 @@ Examples:
         
         # Save analysis text if requested
         if args.save_text:
-            context_file = champion_folder / f"{base_filename}_context.txt"
-            with open(context_file, 'w') as f:
-                f.write(match_context)
-            print(f"  ✓ Context saved")
+            # Save context (only for phase-based analysis)
+            if match_context:
+                context_file = champion_folder / f"{base_filename}_context.txt"
+                with open(context_file, 'w') as f:
+                    f.write(match_context)
+                print(f"  ✓ Context saved")
             
-            # Save each phase analysis
-            for phase_name, phase_analysis in phase_analyses.items():
-                phase_file = champion_folder / f"{base_filename}_analysis_{phase_name}.txt"
-                with open(phase_file, 'w') as f:
-                    f.write(phase_analysis)
-                print(f"  ✓ {phase_name.capitalize()} analysis saved")
+            # Save each phase analysis (only for phase-based analysis)
+            if phase_analyses:
+                for phase_name, phase_analysis in phase_analyses.items():
+                    phase_file = champion_folder / f"{base_filename}_analysis_{phase_name}.txt"
+                    with open(phase_file, 'w') as f:
+                        f.write(phase_analysis)
+                    print(f"  ✓ {phase_name.capitalize()} analysis saved")
             
-            # Save final synthesized review
+            # Save final review
             review_file = champion_folder / f"{base_filename}_analysis_final.txt"
             with open(review_file, 'w') as f:
                 f.write(final_review)
@@ -337,14 +357,20 @@ Examples:
                 _, (match_id, (match_context, phase_analyses, _)) = next(
                     (k, v) for k, v in all_results.items() if k == base_filename
                 )
-                print(f"  📊 Match Context: {base_filename}_context.txt")
-                for phase_name in phase_analyses.keys():
-                    print(f"  📝 {phase_name.capitalize()} Game: {base_filename}_analysis_{phase_name}.txt")
+                if match_context:
+                    print(f"  📊 Match Context: {base_filename}_context.txt")
+                if phase_analyses:
+                    for phase_name in phase_analyses.keys():
+                        print(f"  📝 {phase_name.capitalize()} Game: {base_filename}_analysis_{phase_name}.txt")
                 print(f"  📝 Final Review: {base_filename}_analysis_final.txt")
     
     print(f"\nVoice used: {args.voice}")
-    print(f"Analysis approach: Phase-based (Early → Mid → Late → Synthesis)")
-    print(f"Parallelization: {len(all_results)} games × 3 phases = {len(all_results) * 3} parallel analyses")
+    if args.phase_based:
+        print(f"Analysis approach: Phase-based (Early → Mid → Late → Synthesis)")
+        print(f"Parallelization: {len(all_results)} games × 3 phases = {len(all_results) * 3} parallel analyses")
+    else:
+        print(f"Analysis approach: Single-pass (comprehensive analysis in one go)")
+        print(f"Parallelization: {len(all_results)} games analyzed in parallel")
     if global_analysis:
         print(f"Global analysis: ✅ Generated across all {len(all_results)} games")
     print(f"\n🚀 All {len(audio_files)} audio reviews ready to listen!")

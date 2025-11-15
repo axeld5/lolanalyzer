@@ -19,6 +19,7 @@ from dotenv import load_dotenv
 from find_champion_games import get_puuid_from_riot_id, find_champion_games
 from make_analysis import analyze_match_async, synthesize_global_analysis
 from create_audio import text_to_speech, get_voice_id, VOICES
+from timeline_handler import ensure_timeline_processed
 
 load_dotenv()
 
@@ -229,6 +230,9 @@ async def analyze_games(request: AnalyzeGamesRequest):
                 match_log = json.load(f)
             with open(timeline_file, 'r') as f:
                 timeline = json.load(f)
+            
+            # Ensure timeline is processed (has formattedTimestamp and isOnSide)
+            timeline = ensure_timeline_processed(timeline, str(timeline_file))
             
             match_id = match_log.get("metadata", {}).get("matchId", game_id)
             

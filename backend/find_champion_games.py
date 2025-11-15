@@ -13,6 +13,7 @@ import secrets
 import string
 from make_json_efficient import make_sparse
 from split_timeline import add_champion_mapping, apply_delta_encoding
+from timeline_handler import process_timeline
 
 load_dotenv()
 
@@ -218,18 +219,20 @@ def find_champion_games(puuid: str, champion_name: str, save_to_folder: bool = T
                             json.dump(sparse_match_log, f, indent=2)
                         print(f"  → Saved sparse match log to {log_file}")
                         
-                        # Save timeline (champion mapping + delta encoding + sparse)
+                        # Save timeline (champion mapping + delta encoding + sparse + formatted timestamps + isOnSide)
                         if timeline_data:
                             timeline_file = champion_folder / f"{base_filename}_timeline.json"
                             # Step 1: Add champion mapping and team sides
                             timeline_with_champions = add_champion_mapping(timeline_data, match_data)
                             # Step 2: Apply delta encoding (show only stat changes)
                             timeline_with_deltas = apply_delta_encoding(timeline_with_champions)
-                            # Step 3: Make it sparse (remove zeros/nulls)
-                            sparse_timeline = make_sparse(timeline_with_deltas)
+                            # Step 3: Add formatted timestamps and isOnSide fields
+                            timeline_with_timestamps = process_timeline(timeline_with_deltas)
+                            # Step 4: Make it sparse (remove zeros/nulls)
+                            sparse_timeline = make_sparse(timeline_with_timestamps)
                             with open(timeline_file, 'w') as f:
                                 json.dump(sparse_timeline, f, indent=2)
-                            print(f"  → Saved sparse timeline with champion mapping, team sides, and delta encoding to {timeline_file}")
+                            print(f"  → Saved sparse timeline with champion mapping, team sides, delta encoding, formatted timestamps, and isOnSide to {timeline_file}")
                         
                         # Store the base filename in game_info for later use
                         game_info["base_filename"] = base_filename
