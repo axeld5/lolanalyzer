@@ -2,23 +2,24 @@
 Module for analyzing League of Legends matches using Claude AI.
 Uses multi-stage phase-based analysis:
 1. Stage 1: Analyze match log for context and stats
-2. Stage 2-4: Analyze each game phase (early, mid, late) separately
+2. Stage 2-4: Analyze each game phase (early, mid, late) IN PARALLEL
 3. Stage 5: Synthesize all phases into final coaching review
 """
 import anthropic
 import os
 import json
+import asyncio
 from dotenv import load_dotenv
 from typing import Optional, Tuple, Dict
 from pathlib import Path
-from prompt import get_match_log_prompt, get_phase_prompt, get_synthesis_prompt
+from prompt import get_match_log_prompt, get_phase_prompt, get_synthesis_prompt, get_global_analysis_prompt
 from split_timeline import split_timeline_by_phases, GAME_PHASES
 
 load_dotenv()
 
 
 def analyze_match_log(match_log: dict, player_puuid: str,
-                      model: str = "claude-haiku-4-5") -> str:
+                      model: str = "claude-sonnet-4-5") -> str:
     """
     Stage 1: Analyze match log to extract game context and player performance.
     
@@ -64,17 +65,16 @@ def analyze_match_log(match_log: dict, player_puuid: str,
         raise
 
 
-def analyze_phase(phase_name: str, phase_timeline: dict, match_context: str,
-                  previous_analyses: dict, player_puuid: str, champion_name: str,
-                  model: str = "claude-haiku-4-5") -> str:
+async def analyze_phase_async(phase_name: str, phase_timeline: dict, match_context: str,
+                              player_puuid: str, champion_name: str,
+                              model: str = "claude-sonnet-4-5") -> str:
     """
-    Analyze a specific game phase (early, mid, or late).
+    Analyze a specific game phase (early, mid, or late) asynchronously.
     
     Args:
         phase_name: Name of the phase ("early", "mid", or "late")
         phase_timeline: The timeline JSON data for this phase
         match_context: The summary from Stage 1
-        previous_analyses: Dict of previous phase analyses
         player_puuid: The PUUID of the player to analyze
         champion_name: The champion name
         model: The Claude model to use
@@ -82,30 +82,32 @@ def analyze_phase(phase_name: str, phase_timeline: dict, match_context: str,
     Returns:
         Phase-specific analysis text
     """
-    print(f"\nAnalyzing {phase_name.upper()} game phase...")
+    print(f"  Starting {phase_name.upper()} game phase analysis...")
     
     client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
     
     prompt = get_phase_prompt(phase_name, phase_timeline, match_context,
-                              previous_analyses, player_puuid, champion_name)
-    
-    print(f"  Sending {phase_name} game data to Claude ({model})...")
+                              player_puuid, champion_name)
     
     try:
-        message = client.messages.create(
-            model=model,
-            max_tokens=1024,
-            messages=[
-                {
-                    "role": "user",
-                    "content": prompt
-                }
-            ]
+        # Run the synchronous API call in an executor
+        loop = asyncio.get_event_loop()
+        message = await loop.run_in_executor(
+            None,
+            lambda: client.messages.create(
+                model=model,
+                max_tokens=1024,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": prompt
+                    }
+                ]
+            )
         )
         
         phase_analysis = message.content[0].text
-        print(f"  ✓ {phase_name.capitalize()} game analysis complete!")
-        print(f"    Generated {len(phase_analysis)} characters")
+        print(f"  ✓ {phase_name.capitalize()} game analysis complete! ({len(phase_analysis)} chars)")
         return phase_analysis
         
     except Exception as e:
@@ -115,7 +117,7 @@ def analyze_phase(phase_name: str, phase_timeline: dict, match_context: str,
 
 def synthesize_final_review(match_context: str, phase_analyses: dict,
                             champion_name: str,
-                            model: str = "claude-haiku-4-5") -> str:
+                            model: str = "claude-sonnet-4-5") -> str:
     """
     Synthesize all phase analyses into a cohesive final coaching review.
     
@@ -162,20 +164,21 @@ def synthesize_final_review(match_context: str, phase_analyses: dict,
         raise
 
 
-def analyze_match(match_log: dict, timeline: dict, player_puuid: str, 
-                  model: str = "claude-haiku-4-5") -> Tuple[str, Dict[str, str], str]:
+async def analyze_match_async(match_log: dict, timeline: dict, player_puuid: str, 
+                              model: str = "claude-sonnet-4-5", match_id: str = "Unknown") -> Tuple[str, Dict[str, str], str]:
     """
-    Multi-stage phase-based match analysis using Claude AI.
+    Multi-stage phase-based match analysis using Claude AI (ASYNC VERSION).
     
     Stage 1: Analyze match log for context and stats
-    Stage 2-4: Analyze each game phase (early, mid, late) separately
+    Stage 2-4: Analyze each game phase (early, mid, late) in parallel
     Stage 5: Synthesize all phases into final coaching review
     
     Args:
         match_log: The match log JSON data
         timeline: The timeline JSON data
         player_puuid: The PUUID of the player to analyze
-        model: The Claude model to use (default: Claude haiku 4.5)
+        model: The Claude model to use (default: Claude sonnet 4.5)
+        match_id: Optional match ID for logging
     
     Returns:
         Tuple of (match_context, phase_analyses, final_review)
@@ -192,7 +195,7 @@ def analyze_match(match_log: dict, timeline: dict, player_puuid: str,
             break
     
     print("\n" + "=" * 70)
-    print("PHASE-BASED ANALYSIS PIPELINE")
+    print(f"PHASE-BASED ANALYSIS PIPELINE - {match_id}")
     print("=" * 70)
     print(f"Champion: {champion_name}")
     print(f"Model: {model}")
@@ -201,37 +204,51 @@ def analyze_match(match_log: dict, timeline: dict, player_puuid: str,
     
     # Stage 1: Match Log Analysis
     print("\n" + "=" * 70)
-    print("STAGE 1: Match Context Analysis")
+    print(f"STAGE 1: Match Context Analysis - {match_id}")
     print("=" * 70)
     match_context = analyze_match_log(match_log, player_puuid, model)
     
-    # Split timeline into phases
+    # Split timeline into phases (with champion mapping)
     print("\n" + "=" * 70)
-    print("STAGE 2-4: Phase-by-Phase Timeline Analysis")
+    print(f"STAGE 2-4: Phase-by-Phase Analysis (PARALLEL) - {match_id}")
     print("=" * 70)
-    print("Splitting timeline into game phases...")
-    phase_timelines = split_timeline_by_phases(timeline)
+    print("Splitting timeline into game phases with champion mapping...")
+    phase_timelines = split_timeline_by_phases(timeline, match_log=match_log)
     
-    # Analyze each phase in order
-    phase_analyses = {}
+    # Analyze each phase in parallel using asyncio
+    print("Launching parallel phase analyses...")
+    
+    tasks = []
+    phase_names = []
+    
     for phase_name in ["early", "mid", "late"]:
         if phase_name in phase_timelines:
             phase_timeline = phase_timelines[phase_name]
-            phase_analysis = analyze_phase(
+            task = analyze_phase_async(
                 phase_name, phase_timeline, match_context,
-                phase_analyses, player_puuid, champion_name, model
+                player_puuid, champion_name, model
             )
-            phase_analyses[phase_name] = phase_analysis
+            tasks.append(task)
+            phase_names.append(phase_name)
         else:
             print(f"  ⚠️  {phase_name.capitalize()} phase not found (game may have ended early)")
     
+    # Run all phases in parallel
+    results = await asyncio.gather(*tasks)
+    
+    # Map results back to phase names
+    phase_analyses = {phase_name: result for phase_name, result in zip(phase_names, results)}
+    
     # Final Stage: Synthesis
+    print(f"\n{'='*70}")
+    print(f"FINAL STAGE: Synthesizing Review - {match_id}")
+    print('='*70)
     final_review = synthesize_final_review(
         match_context, phase_analyses, champion_name, model
     )
     
     print("\n" + "=" * 70)
-    print("✅ PHASE-BASED ANALYSIS COMPLETE")
+    print(f"✅ ANALYSIS COMPLETE - {match_id}")
     print("=" * 70)
     print(f"Stage 1 (Context): {len(match_context)} characters")
     for phase_name, analysis in phase_analyses.items():
@@ -240,6 +257,14 @@ def analyze_match(match_log: dict, timeline: dict, player_puuid: str,
     print("=" * 70)
     
     return match_context, phase_analyses, final_review
+
+
+def analyze_match(match_log: dict, timeline: dict, player_puuid: str, 
+                  model: str = "claude-sonnet-4-5") -> Tuple[str, Dict[str, str], str]:
+    """
+    Synchronous wrapper for analyze_match_async for backwards compatibility.
+    """
+    return asyncio.run(analyze_match_async(match_log, timeline, player_puuid, model))
 
 
 def analyze_match_from_files(log_file: str, timeline_file: str, player_puuid: str) -> Tuple[str, Dict[str, str], str]:
@@ -263,6 +288,60 @@ def analyze_match_from_files(log_file: str, timeline_file: str, player_puuid: st
         timeline = json.load(f)
     
     return analyze_match(match_log, timeline, player_puuid)
+
+
+def synthesize_global_analysis(all_results: Dict[str, Tuple[str, Dict[str, str], str]],
+                               model: str = "claude-sonnet-4-5") -> str:
+    """
+    Create a comprehensive analysis across all analyzed games.
+    
+    Args:
+        all_results: Dict mapping match_ids to (context, phase_analyses, final_review) tuples
+        model: The Claude model to use
+    
+    Returns:
+        Global multi-game analysis text
+    """
+    if len(all_results) < 2:
+        print("⚠️  Only 1 game analyzed, skipping global analysis")
+        return ""
+    
+    print("\n" + "=" * 70)
+    print(f"GLOBAL ANALYSIS: Synthesizing {len(all_results)} Games")
+    print("=" * 70)
+    
+    client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+    
+    # Extract contexts and reviews
+    game_contexts = {match_id: result[0] for match_id, result in all_results.items()}
+    game_reviews = {match_id: result[2] for match_id, result in all_results.items()}
+    
+    print("Generating global analysis prompt...")
+    prompt = get_global_analysis_prompt(game_reviews, game_contexts)
+    
+    print(f"Sending all game data to Claude ({model}) for comprehensive analysis...")
+    print("Identifying patterns, trends, and priority improvements across all games...")
+    
+    try:
+        message = client.messages.create(
+            model=model,
+            max_tokens=1024,
+            messages=[
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ]
+        )
+        
+        global_analysis = message.content[0].text
+        print("✓ Global multi-game analysis complete!")
+        print(f"  - Generated {len(global_analysis)} character comprehensive summary")
+        return global_analysis
+        
+    except Exception as e:
+        print(f"❌ Error during global analysis: {e}")
+        raise
 
 
 def save_analysis(analysis: str, output_file: str) -> None:

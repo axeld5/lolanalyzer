@@ -9,6 +9,7 @@ This script:
 import argparse
 import sys
 import os
+import json
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -82,6 +83,13 @@ Examples:
         help="Skip fetching games (assumes champion folder already exists)"
     )
     
+    parser.add_argument(
+        "--num-games",
+        type=int,
+        default=2,
+        help="Number of games to analyze (default: 2, analyzed in parallel)"
+    )
+    
     args = parser.parse_args()
     
     print("="*70)
@@ -132,103 +140,214 @@ Examples:
         
         print(f"\n✓ Found {len(champion_games)} {args.champion} game(s)")
     
-    # Step 3: Get the first game files
+    # Step 3: Get game files (up to num_games)
     print(f"\n{'='*70}")
-    print("STEP 2: Loading first game data")
+    print(f"STEP 2: Loading game data ({args.num_games} game(s))")
     print('='*70)
     
-    # Find the first log and timeline files
+    # Find log and timeline files
     log_files = sorted(champion_folder.glob("*_log.json"))
-    timeline_files = sorted(champion_folder.glob("*_timeline.json"))
+    
+    # Exclude phase timeline files
+    timeline_files = sorted([
+        f for f in champion_folder.glob("*_timeline.json")
+        if not any(x in f.name for x in ['_early', '_mid', '_late'])
+    ])
     
     if not log_files or not timeline_files:
         print(f"❌ Error: No match files found in {champion_folder}/")
         sys.exit(1)
     
-    log_file = log_files[0]
-    # Find matching timeline
-    match_id = log_file.stem.replace("_log", "")
-    timeline_file = champion_folder / f"{match_id}_timeline.json"
+    # Limit to requested number of games
+    num_to_analyze = min(args.num_games, len(log_files))
+    log_files = log_files[:num_to_analyze]
     
-    if not timeline_file.exists():
-        print(f"❌ Error: Timeline file not found: {timeline_file}")
+    # Prepare match data
+    matches_to_analyze = []
+    for log_file in log_files:
+        # Extract base filename (game_YYYYMMDD_XXXX) from log file
+        base_filename = log_file.stem.replace("_log", "")
+        timeline_file = champion_folder / f"{base_filename}_timeline.json"
+        
+        if not timeline_file.exists():
+            print(f"⚠️  Timeline not found for {base_filename}, skipping")
+            continue
+        
+        # Load match log to get match_id for analysis
+        with open(log_file, 'r') as f:
+            match_log = json.load(f)
+        match_id = match_log.get("metadata", {}).get("matchId", base_filename)
+        
+        matches_to_analyze.append({
+            'match_id': match_id,  # Keep for analysis reference
+            'base_filename': base_filename,  # Use for file naming
+            'log_file': log_file,
+            'timeline_file': timeline_file
+        })
+    
+    if not matches_to_analyze:
+        print(f"❌ Error: No valid match pairs found")
         sys.exit(1)
     
-    print(f"Match ID: {match_id}")
-    print(f"Log file: {log_file}")
-    print(f"Timeline file: {timeline_file}")
+    print(f"Found {len(matches_to_analyze)} game(s) to analyze:")
+    for match in matches_to_analyze:
+        print(f"  - {match['base_filename']}")
     
-    # Step 4: Phase-based Analysis with Claude
+    # Step 4: Phase-based Analysis with Claude (PARALLEL for multiple games)
     print(f"\n{'='*70}")
-    print("STEP 3: Phase-Based AI Analysis with Claude")
+    print(f"STEP 3: Phase-Based AI Analysis ({len(matches_to_analyze)} game(s) in PARALLEL)")
     print('='*70)
     
-    import json
-    with open(log_file, 'r') as f:
-        match_log = json.load(f)
-    with open(timeline_file, 'r') as f:
-        timeline = json.load(f)
+    import asyncio
+    from make_analysis import analyze_match_async, synthesize_global_analysis
+    
+    # Async function to analyze multiple matches in parallel
+    async def analyze_all_matches():
+        tasks = []
+        for match_info in matches_to_analyze:
+            # Load match data
+            with open(match_info['log_file'], 'r') as f:
+                match_log = json.load(f)
+            with open(match_info['timeline_file'], 'r') as f:
+                timeline = json.load(f)
+            
+            # Create async task for this match
+            task = analyze_match_async(
+                match_log, timeline, puuid, 
+                match_id=match_info['match_id']
+            )
+            tasks.append((match_info['base_filename'], match_info['match_id'], task))
+        
+        # Run all matches in parallel
+        print(f"\n🚀 Launching {len(tasks)} game analyses in parallel...")
+        print("  Each game will analyze 3 phases (early/mid/late) in parallel")
+        print(f"  Total: {len(tasks)} × 3 = {len(tasks) * 3} parallel analyses!\n")
+        
+        results = await asyncio.gather(*[task for _, _, task in tasks])
+        
+        # Map results back to base filenames (for file naming) and match_ids (for reference)
+        return {
+            base_filename: (match_id, result) 
+            for (base_filename, match_id, _), result in zip(tasks, results)
+        }
     
     try:
-        match_context, phase_analyses, final_review = analyze_match(match_log, timeline, puuid)
+        # Run parallel analysis
+        all_results = asyncio.run(analyze_all_matches())
     except Exception as e:
         print(f"❌ Error during analysis: {e}")
+        import traceback
+        traceback.print_exc()
         sys.exit(1)
     
-    # Save analysis text if requested
-    if args.save_text:
-        context_file = champion_folder / f"{match_id}_context.txt"
-        with open(context_file, 'w') as f:
-            f.write(match_context)
-        print(f"✓ Context saved to {context_file}")
-        
-        # Save each phase analysis
-        for phase_name, phase_analysis in phase_analyses.items():
-            phase_file = champion_folder / f"{match_id}_analysis_{phase_name}.txt"
-            with open(phase_file, 'w') as f:
-                f.write(phase_analysis)
-            print(f"✓ {phase_name.capitalize()} analysis saved to {phase_file}")
-        
-        # Save final synthesized review
-        review_file = champion_folder / f"{match_id}_analysis_final.txt"
-        with open(review_file, 'w') as f:
-            f.write(final_review)
-        print(f"✓ Final review saved to {review_file}")
+    # Step 4.5: Generate global analysis if multiple games
+    global_analysis = None
+    if len(all_results) >= 2:
+        print(f"\n{'='*70}")
+        print("STEP 4: Global Multi-Game Analysis")
+        print('='*70)
+        try:
+            # Convert results format for global analysis (it expects match_id -> result mapping)
+            global_results = {match_id: result for _, (match_id, result) in all_results.items()}
+            global_analysis = synthesize_global_analysis(global_results)
+        except Exception as e:
+            print(f"⚠️  Error during global analysis: {e}")
+            print("Continuing with individual game outputs...")
     
-    # Step 5: Convert final review to audio
+    # Step 5: Save analyses and generate audio
     print(f"\n{'='*70}")
-    print("STEP 4: Converting coaching review to audio")
+    print("STEP 5: Saving analyses and generating audio")
     print('='*70)
     
-    output_file = args.output
-    if not output_file:
-        output_file = champion_folder / f"{match_id}_analysis.mp3"
+    audio_files = []
+    for base_filename, (match_id, (match_context, phase_analyses, final_review)) in all_results.items():
+        print(f"\nProcessing {base_filename}...")
+        
+        # Save analysis text if requested
+        if args.save_text:
+            context_file = champion_folder / f"{base_filename}_context.txt"
+            with open(context_file, 'w') as f:
+                f.write(match_context)
+            print(f"  ✓ Context saved")
+            
+            # Save each phase analysis
+            for phase_name, phase_analysis in phase_analyses.items():
+                phase_file = champion_folder / f"{base_filename}_analysis_{phase_name}.txt"
+                with open(phase_file, 'w') as f:
+                    f.write(phase_analysis)
+                print(f"  ✓ {phase_name.capitalize()} analysis saved")
+            
+            # Save final synthesized review
+            review_file = champion_folder / f"{base_filename}_analysis_final.txt"
+            with open(review_file, 'w') as f:
+                f.write(final_review)
+            print(f"  ✓ Final review saved")
+        
+        # Generate audio
+        output_file = champion_folder / f"{base_filename}_analysis.mp3"
+        
+        try:
+            voice_id = get_voice_id(args.voice)
+            audio_file = text_to_speech(final_review, str(output_file), voice_id=voice_id)
+            audio_files.append((base_filename, audio_file))
+            print(f"  ✓ Audio generated: {audio_file}")
+        except Exception as e:
+            print(f"  ❌ Error during audio generation: {e}")
+            continue
     
-    try:
-        voice_id = get_voice_id(args.voice)
-        audio_file = text_to_speech(final_review, str(output_file), voice_id=voice_id)
-    except Exception as e:
-        print(f"❌ Error during audio generation: {e}")
-        sys.exit(1)
+    # Save and generate audio for global analysis
+    if global_analysis:
+        print(f"\nProcessing GLOBAL ANALYSIS...")
+        
+        if args.save_text:
+            global_file = champion_folder / f"{args.champion}_global_analysis.txt"
+            with open(global_file, 'w') as f:
+                f.write(global_analysis)
+            print(f"  ✓ Global analysis saved")
+        
+        # Generate audio for global analysis
+        global_audio_file = champion_folder / f"{args.champion}_global_analysis.mp3"
+        
+        try:
+            voice_id = get_voice_id(args.voice)
+            audio_file = text_to_speech(global_analysis, str(global_audio_file), voice_id=voice_id)
+            audio_files.append(("GLOBAL", audio_file))
+            print(f"  ✓ Global audio generated: {audio_file}")
+        except Exception as e:
+            print(f"  ⚠️  Error during global audio generation: {e}")
     
     # Final summary
     print(f"\n{'='*70}")
-    print("✅ SUCCESS! Phase-Based Analysis Complete")
+    print(f"✅ SUCCESS! {len(all_results)} Game(s) Analyzed!")
     print('='*70)
     print(f"Champion: {args.champion}")
-    print(f"Match ID: {match_id}")
+    print(f"Games analyzed: {len(all_results)}")
     print(f"\nGenerated Files:")
-    print(f"  🎵 Audio Review: {audio_file}")
-    if args.save_text:
-        print(f"  📊 Match Context: {context_file}")
-        for phase_name in phase_analyses.keys():
-            phase_file = champion_folder / f"{match_id}_analysis_{phase_name}.txt"
-            print(f"  📝 {phase_name.capitalize()} Game: {phase_file}")
-        print(f"  📝 Final Review: {review_file}")
+    
+    for base_filename, audio_file in audio_files:
+        if base_filename == "GLOBAL":
+            print(f"\n🌍 GLOBAL MULTI-GAME ANALYSIS:")
+            print(f"  🎵 Audio: {audio_file}")
+            if args.save_text:
+                print(f"  📊 Text: {args.champion}_global_analysis.txt")
+        else:
+            print(f"\n📁 {base_filename}:")
+            print(f"  🎵 Audio Review: {audio_file}")
+            if args.save_text:
+                _, (match_id, (match_context, phase_analyses, _)) = next(
+                    (k, v) for k, v in all_results.items() if k == base_filename
+                )
+                print(f"  📊 Match Context: {base_filename}_context.txt")
+                for phase_name in phase_analyses.keys():
+                    print(f"  📝 {phase_name.capitalize()} Game: {base_filename}_analysis_{phase_name}.txt")
+                print(f"  📝 Final Review: {base_filename}_analysis_final.txt")
+    
     print(f"\nVoice used: {args.voice}")
     print(f"Analysis approach: Phase-based (Early → Mid → Late → Synthesis)")
-    print(f"Phases analyzed: {', '.join(phase_analyses.keys())}")
-    print("\nYou can now listen to your match review!")
+    print(f"Parallelization: {len(all_results)} games × 3 phases = {len(all_results) * 3} parallel analyses")
+    if global_analysis:
+        print(f"Global analysis: ✅ Generated across all {len(all_results)} games")
+    print(f"\n🚀 All {len(audio_files)} audio reviews ready to listen!")
     print('='*70)
 
 

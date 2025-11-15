@@ -22,9 +22,196 @@ GAME_PHASES = {
 }
 
 
+def apply_delta_encoding(timeline_data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Apply delta encoding to participantFrames - only show stats that changed.
+    For changed stats, show as "old_value -> new_value".
+    
+    Args:
+        timeline_data: Timeline with full stats per frame
+        
+    Returns:
+        Timeline with delta-encoded stats
+    """
+    frames = timeline_data.get("info", {}).get("frames", [])
+    
+    # Track previous stats for each participant
+    previous_stats = {}
+    
+    for frame in frames:
+        participant_frames = frame.get("participantFrames", {})
+        
+        for participant_key, participant_data in participant_frames.items():
+            participant_id = participant_data.get("participantId")
+            if not participant_id:
+                continue
+            
+            # Get stats sections to check for changes
+            current_stats = {}
+            delta_encoded = {}
+            
+            # Copy non-stat fields as-is (but exclude participantId - it's replaced by championName/teamStartingSide)
+            for key in ["championName", "teamStartingSide", "position"]:
+                if key in participant_data:
+                    delta_encoded[key] = participant_data[key]
+            
+            # Process main stats and nested objects
+            for key, value in participant_data.items():
+                if key in ["participantId", "championName", "teamStartingSide", "position"]:
+                    continue  # Already handled or excluded
+                
+                if isinstance(value, dict):
+                    # Handle nested objects like championStats, damageStats
+                    nested_delta = {}
+                    for nested_key, nested_value in value.items():
+                        prev_nested = previous_stats.get(participant_id, {}).get(key, {}).get(nested_key)
+                        
+                        if prev_nested is None:
+                            # First frame or new field
+                            nested_delta[nested_key] = nested_value
+                        elif prev_nested != nested_value:
+                            # Value changed - show delta
+                            nested_delta[nested_key] = f"{prev_nested} -> {nested_value}"
+                        # If same, don't include it
+                    
+                    if nested_delta:  # Only include if there are changes
+                        delta_encoded[key] = nested_delta
+                    
+                    # Store current for next iteration
+                    if participant_id not in current_stats:
+                        current_stats[participant_id] = {}
+                    if key not in current_stats[participant_id]:
+                        current_stats[participant_id][key] = {}
+                    current_stats[participant_id][key] = value
+                else:
+                    # Handle simple values
+                    prev_value = previous_stats.get(participant_id, {}).get(key)
+                    
+                    if prev_value is None:
+                        # First frame
+                        delta_encoded[key] = value
+                    elif prev_value != value:
+                        # Value changed
+                        delta_encoded[key] = f"{prev_value} -> {value}"
+                    # If same, don't include
+                    
+                    # Store current
+                    if participant_id not in current_stats:
+                        current_stats[participant_id] = {}
+                    current_stats[participant_id][key] = value
+            
+            # Update the participant data with delta-encoded version
+            participant_frames[participant_key] = delta_encoded
+            
+            # Update previous_stats for this participant
+            if participant_id not in previous_stats:
+                previous_stats[participant_id] = {}
+            
+            # Merge current stats into previous
+            for key, value in participant_data.items():
+                if key in ["participantId", "championName", "teamStartingSide", "position"]:
+                    continue
+                if isinstance(value, dict):
+                    if key not in previous_stats[participant_id]:
+                        previous_stats[participant_id][key] = {}
+                    previous_stats[participant_id][key] = value.copy()
+                else:
+                    previous_stats[participant_id][key] = value
+    
+    return timeline_data
+
+
+def add_champion_mapping(timeline_data: Dict[str, Any], match_log: Dict[str, Any] = None) -> Dict[str, Any]:
+    """
+    Add champion names and team sides directly into timeline data.
+    
+    Args:
+        timeline_data: The timeline JSON data
+        match_log: Optional match log to get champion names and teams
+        
+    Returns:
+        Timeline data with champion names and team sides added inline
+    """
+    if not match_log:
+        return timeline_data
+    
+    # Build mapping from puuid to champion name and team
+    puuid_to_champion = {}
+    puuid_to_team = {}
+    participants_data = match_log.get("info", {}).get("participants", [])
+    for participant in participants_data:
+        puuid = participant.get("puuid")
+        champion = participant.get("championName", "Unknown")
+        team_id = participant.get("teamId", 0)
+        if puuid:
+            puuid_to_champion[puuid] = champion
+            puuid_to_team[puuid] = team_id
+    
+    # Build mapping from participantId to champion name and team
+    timeline_participants = timeline_data.get("info", {}).get("participants", [])
+    participant_id_to_champion = {}
+    participant_id_to_team = {}
+    for participant in timeline_participants:
+        participant_id = participant.get("participantId")
+        puuid = participant.get("puuid")
+        champion = puuid_to_champion.get(puuid, "Unknown")
+        team_id = puuid_to_team.get(puuid, 0)
+        if participant_id:
+            participant_id_to_champion[participant_id] = champion
+            participant_id_to_team[participant_id] = team_id
+    
+    # Add champion names and team sides inline throughout the timeline
+    frames = timeline_data.get("info", {}).get("frames", [])
+    for frame in frames:
+        # Add to events with participantId
+        for event in frame.get("events", []):
+            if "participantId" in event:
+                participant_id = event["participantId"]
+                if participant_id in participant_id_to_champion:
+                    event["championName"] = participant_id_to_champion[participant_id]
+                if participant_id in participant_id_to_team:
+                    event["teamStartingSide"] = "Blue" if participant_id_to_team[participant_id] == 100 else "Red"
+                # Remove participantId after replacement
+                del event["participantId"]
+            # Also handle killerId, victimId, creatorId
+            if "killerId" in event:
+                killer_id = event["killerId"]
+                if killer_id in participant_id_to_champion:
+                    event["killerChampionName"] = participant_id_to_champion[killer_id]
+                if killer_id in participant_id_to_team:
+                    event["killerTeamStartingSide"] = "Blue" if participant_id_to_team[killer_id] == 100 else "Red"
+            if "victimId" in event:
+                victim_id = event["victimId"]
+                if victim_id in participant_id_to_champion:
+                    event["victimChampionName"] = participant_id_to_champion[victim_id]
+                if victim_id in participant_id_to_team:
+                    event["victimTeamStartingSide"] = "Blue" if participant_id_to_team[victim_id] == 100 else "Red"
+            if "creatorId" in event:
+                creator_id = event["creatorId"]
+                if creator_id in participant_id_to_champion:
+                    event["creatorChampionName"] = participant_id_to_champion[creator_id]
+                if creator_id in participant_id_to_team:
+                    event["creatorTeamStartingSide"] = "Blue" if participant_id_to_team[creator_id] == 100 else "Red"
+        
+        # Add to participantFrames
+        participant_frames = frame.get("participantFrames", {})
+        for frame_key, frame_data in participant_frames.items():
+            if "participantId" in frame_data:
+                participant_id = frame_data["participantId"]
+                if participant_id in participant_id_to_champion:
+                    frame_data["championName"] = participant_id_to_champion[participant_id]
+                if participant_id in participant_id_to_team:
+                    frame_data["teamStartingSide"] = "Blue" if participant_id_to_team[participant_id] == 100 else "Red"
+                # Remove participantId after replacement
+                del frame_data["participantId"]
+    
+    return timeline_data
+
+
 def split_timeline_by_phases(
     timeline_data: Dict[str, Any],
-    phases: Dict[str, Tuple[int, int]] = None
+    phases: Dict[str, Tuple[int, int]] = None,
+    match_log: Dict[str, Any] = None
 ) -> Dict[str, Dict[str, Any]]:
     """
     Split timeline data into game phases.
@@ -33,12 +220,17 @@ def split_timeline_by_phases(
         timeline_data: The full timeline data
         phases: Dictionary of phase names to (start_min, end_min) tuples
                 If None, uses default GAME_PHASES
+        match_log: Optional match log to add champion name mapping
         
     Returns:
         Dictionary mapping phase names to timeline data for that phase
     """
     if phases is None:
         phases = GAME_PHASES
+    
+    # Add champion mapping if match log provided
+    if match_log:
+        timeline_data = add_champion_mapping(timeline_data, match_log)
     
     frames = timeline_data.get("info", {}).get("frames", [])
     
@@ -94,7 +286,8 @@ def split_timeline_by_phases(
                 "frames": phase_frames,
                 "gameId": timeline_data.get("info", {}).get("gameId", 0),
                 "participants": timeline_data.get("info", {}).get("participants", [])
-            }
+            },
+            "participant_champions": timeline_data.get("participant_champions", {})
         }
         
         # Add phase metadata

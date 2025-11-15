@@ -48,6 +48,7 @@ Focus on the TARGET PLAYER and provide:
 
 ## 1. GAME CONTEXT SUMMARY
 - Champion, role, and lane matchup
+- **Side played (Red/Blue)** - important for objectives and camera angle
 - Game result (W/L) and duration
 - Team compositions (both teams)
 - Final score and gold difference
@@ -104,10 +105,14 @@ EARLY_GAME_PROMPT = """You are an expert League of Legends coach analyzing the E
 You will receive:
 1. MATCH CONTEXT - Overall game summary and player performance
 2. EARLY GAME TIMELINE (0-15 min) - Frame-by-frame data for the laning phase
+   - Each participantFrame includes championName field
+   - Each event includes championName for the participant
+   - Kill events include killerChampionName and victimChampionName
 
-Focus on laning phase performance with specific timestamps:
+**IMPORTANT**: Focus ONLY on the early game phase. Do not discuss mid or late game events. Your analysis will be combined with separate mid and late game analyses later.
 
 ## EARLY GAME ANALYSIS (0-15 minutes)
+Analyze the laning phase with specific timestamps:
 - Lane matchup and initial strategy
 - CS patterns and item timings (first back, first item)
 - First blood / early kills and deaths - what happened?
@@ -118,12 +123,24 @@ Focus on laning phase performance with specific timestamps:
 - Early rotations or roams
 - Tower plates taken/lost
 
+## HIDDEN MECHANICS & MICRO PLAY ANALYSIS
+Look for champion-specific execution details that stats don't show:
+- Skill shot accuracy and positioning
+- Ability combo execution (e.g., Lillia E-W sweet spot consistency)
+- Resource management (mana, energy, cooldowns)
+- Auto-attack weaving and trading stance
+- Ability usage efficiency (wasted abilities, missed opportunities)
+- Positioning micro-mistakes that led to taking extra damage
+- Champion-specific mechanics (e.g., spacing for abilities, passive stacks)
+
 GUIDELINES:
 - Reference specific timestamps (e.g., "at 8:30")
-- Be detailed about the laning phase
-- Identify good habits and mistakes
+- Champion names are directly in the data (championName field)
+- Be detailed and analytical about the laning phase
+- Look beyond stats to identify execution issues
+- Identify good habits and mistakes with examples
 - Keep it conversational and direct
-- This will be combined with mid and late game analysis
+- Stay focused on 0-15 minutes ONLY
 
 Provide your early game analysis:"""
 
@@ -132,12 +149,15 @@ MID_GAME_PROMPT = """You are an expert League of Legends coach analyzing the MID
 
 You will receive:
 1. MATCH CONTEXT - Overall game summary and player performance
-2. EARLY GAME SUMMARY - What happened in laning phase
-3. MID GAME TIMELINE (15-30 min) - Frame-by-frame data for mid game
+2. MID GAME TIMELINE (15-30 min) - Frame-by-frame data for mid game
+   - Each participantFrame includes championName field
+   - Each event includes championName for the participant
+   - Kill events include killerChampionName and victimChampionName
 
-Focus on teamfighting and objective play with specific timestamps:
+**IMPORTANT**: Focus ONLY on the mid game phase (15-30 minutes). Do not discuss early or late game events. Your analysis will be combined with separate early and late game analyses later.
 
 ## MID GAME ANALYSIS (15-30 minutes)
+Analyze teamfighting and objective play with specific timestamps:
 - Transition from laning to mid game
 - Major teamfights - positioning, target selection, execution
 - Objective contests (dragons, herald, towers, baron setup)
@@ -148,12 +168,25 @@ Focus on teamfighting and objective play with specific timestamps:
 - Team coordination and shot-calling influence
 - Critical mistakes or excellent plays with timestamps
 
+## HIDDEN MECHANICS & MICRO PLAY ANALYSIS
+Look for execution details in teamfights and skirmishes:
+- Ability usage in fights (correct target priority, timing)
+- Positioning errors that led to deaths or lost fights
+- Missed skill shots or abilities used on wrong targets
+- Cooldown management in extended fights
+- Failure to use summoner spells or items (stopwatch, QSS, etc.)
+- Champion-specific mechanics in teamfights
+- Overextension or hesitation in key moments
+- Mechanical outplays or misplays
+
 GUIDELINES:
 - Reference specific timestamps for teamfights and objectives
-- Analyze decision-making in fights
+- Champion names are directly in the data (championName field)
+- Analyze decision-making AND execution in fights
+- Look for patterns in mechanical mistakes
 - Identify macro play patterns
 - Keep it conversational and direct
-- This will be combined with early and late game analysis
+- Stay focused on 15-30 minutes ONLY
 
 Provide your mid game analysis:"""
 
@@ -162,13 +195,15 @@ LATE_GAME_PROMPT = """You are an expert League of Legends coach analyzing the LA
 
 You will receive:
 1. MATCH CONTEXT - Overall game summary and player performance
-2. EARLY GAME SUMMARY - What happened in laning phase
-3. MID GAME SUMMARY - What happened in mid game
-4. LATE GAME TIMELINE (30+ min) - Frame-by-frame data for late game
+2. LATE GAME TIMELINE (30+ min) - Frame-by-frame data for late game
+   - Each participantFrame includes championName field
+   - Each event includes championName for the participant
+   - Kill events include killerChampionName and victimChampionName
 
-Focus on high-stakes moments and game-ending plays with specific timestamps:
+**IMPORTANT**: Focus ONLY on the late game phase (30+ minutes). Do not discuss early or mid game events. Your analysis will be combined with separate early and mid game analyses later.
 
 ## LATE GAME ANALYSIS (30+ minutes)
+Analyze high-stakes moments and game-ending plays with specific timestamps:
 - Final teamfights and their outcomes
 - Baron/Elder dragon fights - positioning and execution
 - Death timers and their impact
@@ -178,12 +213,25 @@ Focus on high-stakes moments and game-ending plays with specific timestamps:
 - Positioning in team fights
 - How the game was won or lost
 
+## HIDDEN MECHANICS & CRITICAL EXECUTION
+Look for high-pressure execution details:
+- Clutch ability usage or failure (crucial cc, peel, damage)
+- Flash/summoner spell usage in game-deciding moments
+- Positioning in high-stakes fights (one mistake = loss)
+- Target selection in final teamfights
+- Mechanical misplays under pressure
+- Item actives usage (Zhonya's, GA timing, etc.)
+- Failure to execute win condition
+- Champion-specific execution in critical moments
+
 GUIDELINES:
 - Reference specific timestamps for crucial moments
-- Emphasize decision-making under pressure
+- Champion names are directly in the data (championName field)
+- Emphasize decision-making AND execution under pressure
 - Identify what sealed the victory or caused the loss
+- Look for mechanical failures in key moments
 - Keep it conversational and direct
-- This completes the phase-by-phase analysis
+- Stay focused on 30+ minutes ONLY
 
 Provide your late game analysis:"""
 
@@ -245,6 +293,68 @@ START YOUR COACHING REVIEW NOW:"""
 
 
 # ============================================================================
+# GLOBAL MULTI-GAME ANALYSIS
+# ============================================================================
+
+GLOBAL_ANALYSIS_PROMPT = """You are an expert League of Legends coach providing a PRECISE, ACTIONABLE SUMMARY across multiple games focused on player improvement.
+
+You will receive individual coaching reviews for multiple games. Your goal is to identify what ACTUALLY MATTERS for improvement - patterns that impact outcomes, not just phase-by-phase breakdowns.
+
+**BE PRECISE AND ACTIONABLE.** Focus on specific, fixable issues and transferable strengths. Avoid generic phase comparisons unless they reveal actionable insights.
+
+Create a focused summary covering:
+
+## 1. PERFORMANCE OVERVIEW (30 seconds)
+- Games analyzed: champions, results, win rate
+- Overall trend: improving, declining, or inconsistent
+- One sentence on overall performance level
+
+## 2. CORE STRENGTHS TO MAINTAIN (45 seconds)
+What does this player do CONSISTENTLY WELL across games?
+- Specific mechanical skills (e.g., "excellent skill shot accuracy", "clean combo execution")
+- Decision-making patterns that work (e.g., "strong objective timing", "good map awareness")
+- Champion-specific execution that stands out
+- **Focus on strengths that WIN GAMES, not just "good habits"**
+
+## 3. CRITICAL WEAKNESSES TO FIX (1.5 minutes)
+What REPEATED MISTAKES cost games? Be specific:
+- **Mechanical issues**: Specific skill execution problems (e.g., "consistently misses Q in teamfights", "poor positioning leads to deaths")
+- **Decision-making errors**: Macro mistakes that recur (e.g., "overextends without vision", "misses objective timings")
+- **Execution gaps**: Champion-specific mechanics being missed (e.g., "not using W sweet spot", "poor ultimate timing")
+- **Impact**: How did these mistakes affect game outcomes?
+- **Reference specific examples** from the games when possible
+
+## 4. TOP 3 PRIORITY IMPROVEMENTS (1.5 minutes)
+Rank the MOST IMPACTFUL issues to address:
+1. **#1 Priority**: [Specific issue] - Why it matters, how it cost games, how to fix
+2. **#2 Priority**: [Specific issue] - Why it matters, how it cost games, how to fix  
+3. **#3 Priority**: [Specific issue] - Why it matters, how it cost games, how to fix
+
+**Each priority must:**
+- Be SPECIFIC and ACTIONABLE (not vague like "improve early game")
+- Show clear impact on outcomes
+- Include a concrete way to practice/improve it
+- Reference which games it appeared in
+
+## 5. POSITIVE MOMENTS & ENCOURAGEMENT (30 seconds)
+- What's improving or showing promise?
+- Specific plays or decisions that stood out positively
+- One encouraging takeaway
+
+**GUIDELINES:**
+- Keep it PRECISE - every point should be actionable
+- Focus on PATTERNS that appear across games, not isolated incidents
+- Prioritize issues that DIRECTLY IMPACTED GAME OUTCOMES
+- Avoid generic phase comparisons unless they reveal specific fixable issues
+- Be direct and conversational - this is coaching, not a report
+- Write for SPOKEN delivery - natural, conversational
+- Reference specific games when making points
+- Total length: ~4-5 minutes of audio
+
+Now provide your focused multi-game analysis:"""
+
+
+# ============================================================================
 # PROMPT GENERATORS
 # ============================================================================
 
@@ -275,6 +385,10 @@ def get_match_log_prompt(match_log: dict, player_puuid: str) -> str:
     game_name = target_player.get("riotIdGameName", "Unknown")
     tag_line = target_player.get("riotIdTagline", "")
     
+    # Determine side (teamId 100 = Blue, 200 = Red)
+    team_id = target_player.get("teamId", 0)
+    side = "Blue Side" if team_id == 100 else "Red Side" if team_id == 200 else "Unknown"
+    
     # Round all numbers to 3 decimals to reduce token usage
     print("  → Rounding numbers to 3 decimals to optimize token usage...")
     match_log_rounded = round_numbers_in_data(match_log, decimals=3)
@@ -285,6 +399,7 @@ def get_match_log_prompt(match_log: dict, player_puuid: str) -> str:
 TARGET PLAYER INFORMATION:
 - Summoner: {game_name}#{tag_line}
 - Champion: {champion_name}
+- Side: {side} (Team {team_id})
 - PUUID: {player_puuid}
 
 MATCH LOG DATA:
@@ -298,15 +413,14 @@ Provide your structured analysis now:"""
 
 
 def get_phase_prompt(phase_name: str, phase_timeline: dict, match_context: str,
-                     previous_analyses: dict, player_puuid: str, champion_name: str) -> str:
+                     player_puuid: str, champion_name: str) -> str:
     """
-    Generate prompt for a specific game phase analysis.
+    Generate prompt for a specific game phase analysis (independent).
     
     Args:
         phase_name: Name of the phase ("early", "mid", or "late")
         phase_timeline: The timeline JSON data for this phase
         match_context: The summary from Stage 1 analysis
-        previous_analyses: Dict of previous phase analyses {"early": "...", "mid": "..."}
         player_puuid: The PUUID of the player to analyze
         champion_name: The champion name
     
@@ -335,22 +449,7 @@ TARGET PLAYER:
 
 MATCH CONTEXT (from statistical analysis):
 {match_context}
-"""
-    
-    # Add previous phase analyses if available
-    if "early" in previous_analyses and phase_name in ["mid", "late"]:
-        prompt += f"""
-EARLY GAME SUMMARY:
-{previous_analyses["early"]}
-"""
-    
-    if "mid" in previous_analyses and phase_name == "late":
-        prompt += f"""
-MID GAME SUMMARY:
-{previous_analyses["mid"]}
-"""
-    
-    prompt += f"""
+
 {phase_name.upper()} GAME TIMELINE DATA:
 ```json
 {timeline_str}
@@ -431,6 +530,45 @@ def get_analysis_prompt(match_log: dict, timeline: dict, player_puuid: str) -> s
         "Single-stage analysis is deprecated due to token limits. "
         "Use two-stage analysis: get_match_log_prompt() then get_timeline_prompt()"
     )
+
+
+def get_global_analysis_prompt(game_reviews: Dict[str, str], game_contexts: Dict[str, str]) -> str:
+    """
+    Generate prompt for global multi-game analysis.
+    
+    Args:
+        game_reviews: Dict mapping match_ids to final coaching reviews
+        game_contexts: Dict mapping match_ids to match context summaries
+    
+    Returns:
+        Complete prompt string for global analysis
+    """
+    # Build the game summaries
+    game_summary = ""
+    for idx, (match_id, review) in enumerate(game_reviews.items(), 1):
+        context = game_contexts.get(match_id, "No context available")
+        game_summary += f"""
+{'='*70}
+GAME {idx}: {match_id}
+{'='*70}
+
+MATCH CONTEXT:
+{context}
+
+COACHING REVIEW:
+{review}
+
+"""
+    
+    prompt = f"""{GLOBAL_ANALYSIS_PROMPT}
+
+You have {len(game_reviews)} game(s) to analyze:
+
+{game_summary}
+
+Now provide your comprehensive multi-game analysis:"""
+    
+    return prompt
 
 
 def get_summary_prompt() -> str:

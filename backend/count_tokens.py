@@ -96,7 +96,7 @@ def main():
         file_path = Path(sys.argv[1])
     else:
         # Default to the specific file requested
-        file_path = Path(__file__).parent / "lillia" / "EUW1_7601320835_timeline.json"
+        file_path = Path(__file__).parent / "lillia" / "game_20251114_x49l_timeline.json"
     
     if not file_path.exists():
         print(f"Error: File not found: {file_path}")

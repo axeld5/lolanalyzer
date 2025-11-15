@@ -8,7 +8,11 @@ from dotenv import load_dotenv
 from typing import List, Dict, Optional
 import json
 from pathlib import Path
+from datetime import datetime
+import secrets
+import string
 from make_json_efficient import make_sparse
+from split_timeline import add_champion_mapping, apply_delta_encoding
 
 load_dotenv()
 
@@ -17,6 +21,36 @@ RIOT_API_KEY = os.getenv("RIOT_API_KEY")
 # Riot API endpoints
 REGION = "europe"  # Europe routing value
 PLATFORM = "euw1"  # Platform for account lookup
+
+
+def generate_game_filename(match_data: Dict, suffix: str = "") -> str:
+    """
+    Generate filename in format: game_YYYYMMDD_XXXX{suffix}
+    where XXXX is a 4-character random alphanumeric UID.
+    
+    Args:
+        match_data: Match data dictionary containing gameCreation timestamp
+        suffix: Optional suffix to append (e.g., "_log", "_timeline", "_analysis")
+    
+    Returns:
+        Filename string
+    """
+    # Get game creation timestamp (in milliseconds)
+    game_creation = match_data.get("info", {}).get("gameCreation", 0)
+    
+    # Convert to datetime and format as YYYYMMDD
+    game_date = datetime.fromtimestamp(game_creation / 1000).strftime("%Y%m%d")
+    
+    # Generate 4-character random UID (alphanumeric)
+    uid_chars = string.ascii_letters + string.digits
+    uid = ''.join(secrets.choice(uid_chars) for _ in range(4))
+    
+    # Build filename
+    filename = f"game_{game_date}_{uid}"
+    if suffix:
+        filename += suffix
+    
+    return filename
 
 
 def get_puuid_from_riot_id(game_name: str, tag_line: str) -> Optional[str]:
@@ -174,19 +208,31 @@ def find_champion_games(puuid: str, champion_name: str, save_to_folder: bool = T
                     
                     # Save to folder if requested
                     if save_to_folder and champion_folder:
-                        # Save match log
-                        log_file = champion_folder / f"{match_id}_log.json"
-                        with open(log_file, 'w') as f:
-                            json.dump(match_data, f, indent=4)
-                        print(f"  → Saved match log to {log_file}")
+                        # Generate filename with date and random UID
+                        base_filename = generate_game_filename(match_data)
                         
-                        # Save timeline (sparse/efficient version)
+                        # Save match log (sparse)
+                        log_file = champion_folder / f"{base_filename}_log.json"
+                        sparse_match_log = make_sparse(match_data)
+                        with open(log_file, 'w') as f:
+                            json.dump(sparse_match_log, f, indent=2)
+                        print(f"  → Saved sparse match log to {log_file}")
+                        
+                        # Save timeline (champion mapping + delta encoding + sparse)
                         if timeline_data:
-                            timeline_file = champion_folder / f"{match_id}_timeline.json"
-                            sparse_timeline = make_sparse(timeline_data)
+                            timeline_file = champion_folder / f"{base_filename}_timeline.json"
+                            # Step 1: Add champion mapping and team sides
+                            timeline_with_champions = add_champion_mapping(timeline_data, match_data)
+                            # Step 2: Apply delta encoding (show only stat changes)
+                            timeline_with_deltas = apply_delta_encoding(timeline_with_champions)
+                            # Step 3: Make it sparse (remove zeros/nulls)
+                            sparse_timeline = make_sparse(timeline_with_deltas)
                             with open(timeline_file, 'w') as f:
                                 json.dump(sparse_timeline, f, indent=2)
-                            print(f"  → Saved sparse timeline to {timeline_file}")
+                            print(f"  → Saved sparse timeline with champion mapping, team sides, and delta encoding to {timeline_file}")
+                        
+                        # Store the base filename in game_info for later use
+                        game_info["base_filename"] = base_filename
                     
                     champion_games.append(game_info)
                 else:

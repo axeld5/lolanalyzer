@@ -21,6 +21,12 @@ This phase-based approach provides:
 ### 3. Audio Review Generation
 Convert text analysis to natural-sounding audio using ElevenLabs text-to-speech, perfect for listening while you play or commute.
 
+### 4. Advanced Data Optimization
+- **Team Side Detection**: All data includes Blue/Red team identification
+- **Delta Encoding**: Frames show only changed stats in `"old → new"` format
+- **Sparse JSON**: Automatically removes zeros, nulls, and empty values (~50% size reduction)
+- **Token Efficiency**: Optimized data reduces AI analysis costs by 40-60%
+
 ## Setup
 
 1. Install dependencies:
