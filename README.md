@@ -1,2 +1,0 @@
-# lolanalyzer
-Replay Tool Analyzer
