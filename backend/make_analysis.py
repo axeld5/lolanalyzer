@@ -18,7 +18,7 @@ load_dotenv()
 
 
 def analyze_match_log(match_log: dict, player_puuid: str,
-                      model: str = "claude-sonnet-4-5") -> str:
+                      model: str = "claude-haiku-4-5") -> str:
     """
     Stage 1: Analyze match log to extract game context and player performance.
     
@@ -45,7 +45,7 @@ def analyze_match_log(match_log: dict, player_puuid: str,
     try:
         message = client.messages.create(
             model=model,
-            max_tokens=3000,
+            max_tokens=1024,
             messages=[
                 {
                     "role": "user",
@@ -66,7 +66,7 @@ def analyze_match_log(match_log: dict, player_puuid: str,
 
 def analyze_phase(phase_name: str, phase_timeline: dict, match_context: str,
                   previous_analyses: dict, player_puuid: str, champion_name: str,
-                  model: str = "claude-sonnet-4-5") -> str:
+                  model: str = "claude-haiku-4-5") -> str:
     """
     Analyze a specific game phase (early, mid, or late).
     
@@ -94,7 +94,7 @@ def analyze_phase(phase_name: str, phase_timeline: dict, match_context: str,
     try:
         message = client.messages.create(
             model=model,
-            max_tokens=2500,
+            max_tokens=1024,
             messages=[
                 {
                     "role": "user",
@@ -115,7 +115,7 @@ def analyze_phase(phase_name: str, phase_timeline: dict, match_context: str,
 
 def synthesize_final_review(match_context: str, phase_analyses: dict,
                             champion_name: str,
-                            model: str = "claude-sonnet-4-5") -> str:
+                            model: str = "claude-haiku-4-5") -> str:
     """
     Synthesize all phase analyses into a cohesive final coaching review.
     
@@ -143,7 +143,7 @@ def synthesize_final_review(match_context: str, phase_analyses: dict,
     try:
         message = client.messages.create(
             model=model,
-            max_tokens=4500,
+            max_tokens=1024,
             messages=[
                 {
                     "role": "user",
@@ -163,7 +163,7 @@ def synthesize_final_review(match_context: str, phase_analyses: dict,
 
 
 def analyze_match(match_log: dict, timeline: dict, player_puuid: str, 
-                  model: str = "claude-sonnet-4-5") -> Tuple[str, Dict[str, str], str]:
+                  model: str = "claude-haiku-4-5") -> Tuple[str, Dict[str, str], str]:
     """
     Multi-stage phase-based match analysis using Claude AI.
     
@@ -175,7 +175,7 @@ def analyze_match(match_log: dict, timeline: dict, player_puuid: str,
         match_log: The match log JSON data
         timeline: The timeline JSON data
         player_puuid: The PUUID of the player to analyze
-        model: The Claude model to use (default: Claude Sonnet 4.5)
+        model: The Claude model to use (default: Claude haiku 4.5)
     
     Returns:
         Tuple of (match_context, phase_analyses, final_review)
