@@ -221,7 +221,7 @@ async def analyze_match_single_pass_async(match_log: dict, timeline: dict, playe
             None,
             lambda: client.beta.messages.create(
                 model=model,
-                max_tokens=2048,
+                max_tokens=1024,
                 betas=["context-1m-2025-08-07"],
                 messages=[
                     {

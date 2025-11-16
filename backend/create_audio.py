@@ -9,6 +9,11 @@ from typing import Optional
 load_dotenv()
 
 
+client = ElevenLabs(
+        base_url="https://api.elevenlabs.io",
+        api_key=os.getenv("ELEVENLABS_API_KEY")
+    )
+
 def text_to_speech(text: str, output_file: str = "analysis.mp3",
                    voice_id: str = "JBFqnCBsd6RMkjVDRZzb",
                    model_id: str = "eleven_multilingual_v2") -> str:
@@ -25,10 +30,6 @@ def text_to_speech(text: str, output_file: str = "analysis.mp3",
         Path to the generated audio file
     """
     print("Initializing ElevenLabs API...")
-    client = ElevenLabs(
-        base_url="https://api.elevenlabs.io",
-        api_key=os.getenv("ELEVENLABS_API_KEY")
-    )
     
     print(f"Converting text to speech (voice: {voice_id})...")
     print("This may take a moment...")

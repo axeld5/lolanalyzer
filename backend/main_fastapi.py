@@ -91,6 +91,7 @@ class AnalyzeGamesResponse(BaseModel):
     gameAnalyses: List[GameAnalysis]
     globalAnalysisUrl: Optional[str] = None
     globalSummary: Optional[str] = None
+    globalDetailedAnalysis: Optional[str] = None
 
 
 def format_duration(seconds: int) -> str:
@@ -357,14 +358,19 @@ async def analyze_games(request: AnalyzeGamesRequest):
                         break
                 if len(global_summary) > 300:
                     global_summary = global_summary[:297] + "..."
+                
+                # Store full analysis for detailed view
+                global_detailed_analysis = global_analysis.strip()
                     
             except Exception as e:
                 print(f"⚠️  Error during global analysis: {e}")
+                global_detailed_analysis = None
         
         return AnalyzeGamesResponse(
             gameAnalyses=game_analyses,
             globalAnalysisUrl=global_analysis_url,
-            globalSummary=global_summary
+            globalSummary=global_summary,
+            globalDetailedAnalysis=global_detailed_analysis if 'global_detailed_analysis' in locals() else None
         )
         
     except HTTPException:

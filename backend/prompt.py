@@ -238,15 +238,11 @@ Provide your late game analysis:"""
 
 SINGLE_PASS_ANALYSIS_PROMPT = """You are an expert League of Legends coach providing a complete VOD review.
 
-You will receive match log data and timeline data with formatted timestamps (minute:seconds:milliseconds) and isOnSide fields.
+You will receive match log data and timeline data with formatted timestamps.
 
-Create a natural, conversational coaching review covering:
-- Game overview and result
-- Key moments from early, mid, and late game with timestamps
-- What went well and what could be improved
-- Actionable recommendations
+Create a natural, conversational coaching review covering everything you think is valuable to cover within the game.
 
-Write for SPOKEN delivery - natural, engaging, ~5-6 minutes when spoken. Use "you" and "your" to speak directly to the player. Reference specific timestamps and use isOnSide information when relevant.
+Write for SPOKEN delivery - natural, engaging, ~2-3 minutes when spoken. Use "you" and "your" to speak directly to the player. Reference specific timestamps and use isOnSide information when relevant.
 
 Provide your coaching review:"""
 

@@ -1,0 +1,61 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Data files
+*.json
+*.mp3
+*.txt
+lillia/
+*/game_*.json
+*/game_*.mp3
+*/game_*.txt
+*_log.json
+*_timeline.json
+*_analysis.mp3
+*_analysis.txt
+*_context.txt
+*_analysis_*.txt
+*_global_analysis.mp3
+
+# Git
+.git/
+.gitignore
+
+# Documentation
+*.md
+!README.md
+
+# Test files
+test_files/
+old_files/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
